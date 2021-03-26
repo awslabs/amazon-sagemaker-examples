@@ -19,6 +19,10 @@ import matplotlib.pyplot as plt
 import shutil
 import networkx as nx
 
+import shap
+import smdebug.mxnet as smd
+from smdebug.core.writer import FileWriter
+
 with warnings.catch_warnings():
     warnings.filterwarnings('ignore', category=DeprecationWarning)
     from prettytable import PrettyTable
@@ -47,7 +51,8 @@ def __load_input_data(path: str) -> TabularDataset:
     input_data_files = os.listdir(path)
     try:
         input_dfs = [pd.read_csv(f'{path}/{data_file}') for data_file in input_data_files]
-        return task.Dataset(df=pd.concat(input_dfs))
+        return pd.concat(input_dfs)
+        #return task.Dataset(df=pd.concat(input_dfs))
     except:
         print(f'No csv data in {path}!')
         return None
@@ -107,6 +112,18 @@ def get_roc_auc(y_test_true, y_test_pred, labels, class_labels_internal, model_o
     plt.legend(loc="lower right")
     plt.show()
     plt.savefig(f'{model_output_dir}/roc_auc_curve.png')
+
+class AutogluonWrapper:
+    def __init__(self, predictor, feature_names):
+        self.ag_model = predictor
+        self.feature_names = feature_names
+    
+    def predict_proba(self, X):
+        if isinstance(X, pd.Series):
+            X = X.values.reshape(1,-1)
+        if not isinstance(X, pd.DataFrame):
+            X = pd.DataFrame(X, columns=self.feature_names)
+        return self.ag_model.predict_proba(X)   
     
 def train(args):
     model_output_dir = f'{args.output_dir}/data'
@@ -204,7 +221,7 @@ def train(args):
                 get_roc_auc(y_test_true, y_test_pred_prob, predictor.class_labels, predictor.class_labels_internal, model_output_dir)
         else:
             warnings.warn('Skipping eval on test data since label column is not included.')
-
+    
     # Files summary
     print(f'Model export summary:')
     print(f"/opt/ml/model/: {os.listdir('/opt/ml/model/')}")
@@ -228,13 +245,14 @@ def parse_args():
     parser.add_argument('--model-dir', type=str, default=os.environ['SM_MODEL_DIR'])
     parser.add_argument('--output-dir', type=str, default=os.environ['SM_OUTPUT_DIR'])
     parser.add_argument('--train', type=str, default=os.environ['SM_CHANNEL_TRAINING'])
+    
     # Arguments to be passed to task.fit()
     parser.add_argument('--fit_args', type=lambda s: ast.literal_eval(s),
                         default="{'presets': ['optimize_for_deployment']}",
                         help='https://autogluon.mxnet.io/api/autogluon.task.html#tabularprediction')
     # Additional options
     parser.add_argument('--feature_importance', type='bool', default=True)
-
+          
     return parser.parse_args()
 
 
